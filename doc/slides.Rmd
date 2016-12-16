@@ -1,0 +1,35 @@
+---
+title: "slides"
+author: "Yi Li"
+date: "October 29, 2016"
+output: beamer_presentation
+bibliography: skeleton.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+R Markdown see <http://rmarkdown.rstudio.com>. we can cite R here [@R-base]. See @R-rmarkdown more information.
+
+```{bash include=TRUE}
+pwd
+```
+
+```{python, include=TRUE}
+x = 'hello, python world!'
+print(x.split(' '))
+import numpy as np
+```
+
+
+
+
+## Reference
+
+```{r bib, include=FALSE}
+# create a bib file for the R packages used in this document
+knitr::write_bib(c('base', 'rmarkdown'), file = 'skeleton.bib')
+```

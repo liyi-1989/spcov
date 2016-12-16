@@ -1,0 +1,339 @@
+---
+title: "Some results on spatial data"
+author: "Yi Li"
+link-citations: yes
+output:
+  tufte::tufte_handout:
+    citation_package: natbib
+    latex_engine: xelatex
+  tufte::tufte_book:
+    citation_package: natbib
+    latex_engine: xelatex
+  tufte::tufte_html: default
+subtitle: An implementation in R Markdown
+bibliography: skeleton.bib
+---
+
+<!--  '`r Sys.Date()`' ```{marginfigure} --> 
+
+```{r setup, include=FALSE}
+library(tufte)
+# invalidate cache when the tufte version changes
+knitr::opts_chunk$set(tidy = FALSE, cache.extra = packageVersion('tufte'))
+options(htmltools.dir.version = FALSE)
+```
+
+> `r quote_footer('--- CyberSEES')`
+
+<!--
+`r margin_note("Agenda")` 
+
+```{marginfigure}
+- PCA for image reconstruction
+    - synthetic and image data
+- Copula BCSD
+- MSSL
+```
+-->
+
+-------------------------------
+
+# 1. PCA for image reconstruction
+
+## 1.1 PCA reconstruction formula
+
+`r newthought('In')` PCA, we have:
+
+- the data matrix $\mathbb{X}_{n\times p}$, where $n$ is the sample size, and $p$ is the dimension of the data. 
+- sample covariance $S=\frac{1}{n-1}\mathbb{X}^\top\mathbb{X}$ ^[true covariance $\Sigma$].
+- eigen decomposition of $S=V_{p\times p}\Lambda_{p\times p} V^\top_{p\times p}$.
+    - columns of $V$: eigenvectors of $V$, principal axes(direction), loadings
+- projection of data on principle axes -- principle components (PC scores): $\mathbb{Z}=\mathbb{X}_{n\times p}V_{p\times p}$
+    - $i^{th}$ row of $\mathbb{Z}$: coordinates of the $i^{th}$ data point in the new PC space
+    - $j^{th}$ column of $\mathbb{Z}$: $j^{th}$ PC
+    - reconstruct $\hat{\mathbb{X}}=\mathbb{Z}V^\top=\mathbb{X}VV^\top$
+- if choose first $d$ columns of $V$, we get $V_{p\times d}$:
+    - $\mathbb{Z}_{n\times d}=\mathbb{X}_{n\times p}V_{p\times d}$
+    - reconstruct $\hat{\mathbb{X}}_{n\times p}=\mathbb{Z}_{n\times d}V^\top_{d\times p}=\mathbb{X}_{n\times p}V_{p\times d}V^\top_{d\times p}$
+    - $VV^\top$ is projection matrix
+- above assumes the mean is substracted from the data matrix
+    - $\mathbb{Z}=(\mathbb{X}-\mu)V$, $\mathbb{X}=\mathbb{Z}V^\top+\mu$
+- in the validation setting, $\hat{\mathbb{X}}_{n_{test}\times p}=\mathbb{X}_{n_{test}\times p}V_{p\times d}V^\top_{d\times p}$
+    - $V$ is calculated from the training data
+    - $\mathbb{X}_{n_{test}\times p}$ is from testing data
+    
+> PCA reconstruction = PC score $\times$ eigenvectors$^\top$+mean
+
+## 1.2 Simulated data^[with the block-bandable matrices]
+
+
+- Assume the spatial data are correlated acording to their spatial distance.
+- Then we have the covariance structure as "block bandable"
+- Modify the sample covariance matrix: keep the central diagonal elements in each block, set small off-diagonal elements to zero.
+- Here are some simulation in R [@R-base]
+
+```{r, fig.margin = TRUE, fig.width=4, fig.height=4,echo=FALSE}
+library(cape)
+source("../doubletaper.R")
+n=10
+X_label=matrix(1:n^2,n,n,byrow = T)
+C=matrix(0,n^2,n^2)
+
+for(i1 in 1:n){
+  for(j1 in 1:n){
+    for(i2 in 1:n){
+      for(j2 in 1:n){
+        i=(i1-1)*n+j1
+        j=(i2-1)*n+j2
+        C[i,j]=exp(-0.4*base::norm(as.matrix(c(i1-i2,j1-j2)),type="2"))
+      }
+    }
+  }
+}
+
+
+image(rotate.mat(X_label),main="X: 2D Spatial Stations Labels",axes=F)
+for(i in 1:n){
+  for(j in 1:n){
+    count=(i-1)*n+j
+    text(j/(n-1)-0.1,1-i/(n-1)+0.1,count)
+  }
+}
+```
+
+```{r, fig.width=4, fig.height=4,echo=FALSE, cache=TRUE}
+image(rotate.mat(C),main="S: Covariance Matrix Structure",axes=F)
+```
+
+
+```{r, fig.width=4, fig.height=4, echo=FALSE}
+source('../simu_pca_functions.R')
+library(MASS)
+p1=32; p2=32; p=p1*p2; M=1; a=1.5; b=1.5
+
+S=doubleblock(p1,p2,M,a,b)
+# sum(eigen(S)$value<0)
+image(rotate.mat(S),main="S: Covariance Matrix Structure",axes=F)
+
+n0=80
+X0 = mvrnorm(n0, mu = rep(0,p), Sigma = S)
+n1=20
+X1 = mvrnorm(n1, mu = rep(0,p), Sigma = S)
+```
+
+```{r}
+dim(X0) # training
+dim(X1) # testing
+```
+
+
+```{r, fig.width=4, fig.height=4, echo=FALSE}
+re0=reconstruction_error(X0,X1,type=0)
+re1=reconstruction_error(X0,X1,type=1,p1=p1,p2=p1,ck=1,cl=1,a=a,b=b,method="tapering",Axis=0,n=dim(X0)[1])
+
+# reconstruction_error_plot(re0)
+# reconstruction_error_plot(re1)
+
+par(mfrow=c(1,1))
+layout(matrix(1, 1, 1, byrow = TRUE))
+plot(re0$npc,re0$err,col="black",type="b",pch=1,ylim=c(min(re1$err),max(re0$err)),
+     main=paste0("Reconstruction Error"),xlab="number of PC",ylab="Error")
+points(re1$npc,re1$err,col="red",type="b",pch=17)
+legend("topright",c("Sample Covariance","Tapered Covariance"),col=c("black","red"),lty=c(1,1),pch=c(1,17),cex=0.75)
+```
+
+
+## 1.3 Face data
+
+
+```{r,echo=FALSE,cache=TRUE}
+X=read.csv("../oliv.csv",header = F)
+```
+
+```{r,echo=FALSE, cache=TRUE}
+par(mfrow=c(6,5),
+          oma = c(5,4,0,0) ,
+          mar = c(0,0,1,1))
+for(i in 1:30){
+  xi=matrix(as.matrix(X[i,]),64,64,byrow = T)
+  image(rotate.mat(xi), col = gray((0:100)/100),axes = F)
+}
+```
+
+
+
+
+```{r, echo=FALSE, cache=TRUE}
+id0= 1<=((1:400)%%10) & ((1:400)%%10)<=4 # choose first 6 picture as training
+id1=!id0
+X0=X[id0,] # training
+X1=X[id1,] # testing
+X1=as.matrix(X1)
+```
+
+```{r}
+dim(X0) # training
+dim(X1) # testing
+```
+
+```{r, echo=FALSE, cache=TRUE}
+# X0: training data
+# X1: testing data (matrix)
+# X0, X1 must have the sample number of columns (number of features). 
+# number of rows (sample size) could be different.
+# cov: 0 is sample covariance, 1 is double tapering
+reconstruction_error=function(X0,X1,type=0,p1=64,p2=64,ck=1,cl=1,a=1.1,b=1.1,method="tapering",Axis=0,n=dim(X0)[1]){
+  N1=dim(X1)[1]
+  m0=apply(X0,2,mean) # mean of (training) data
+  M0=matrix(rep(m0,N1),N1,byrow = T)
+  X0s=apply(X0,2,function(x){x-mean(x)}) # scaled training
+  
+  if(type==0){
+    S=cov(X0s)
+  }else if(type==1){
+    S=cov(X0s)
+    S=doubeltaper(S,p1=p1,p2=p2,ck=ck,cl=cl,n=n,a=a,b=b,method=method,Axis=Axis)
+  }
+  Sres=eigen(S)
+  V=Sres$vectors
+  d=c(10,50,100,200,500,1000,1500,1750,2000)
+  err=rep(0,length(d))
+  for(i in 1:7){
+    V0=V[,1:d[i]]
+    Z1=(X1-M0)%*%V0
+    X1hat=Z1%*%t(V0)+M0
+    err[i]=sqrt(sum((X1-X1hat)^2))
+  }
+  return(list(S=S,type=type,V=Sres$vectors,L=Sres$values,npc=d,err=err))
+}
+
+reconstruction_error_plot=function(re){
+  if(re$type==0){
+    stype="Sample Covariance"
+  }else if(re$type==1){
+    stype="Tapered Covariance"
+  }
+  
+  par(mfrow=c(1,1),oma = c(5,4,0,0),mar = c(0,0,2,2))
+  Lout=c(1,1,2,2,1,1,2,2,3,3,4,5,3,3,6,7,8,9,12,13,10,11,14,15)
+  layout(matrix(Lout, 6, 4, byrow = TRUE))
+  
+  ds=min(dim(re$S)[1],1000)
+  image(rotate.mat(re$S[1:ds,1:ds]), axes=F,main=stype)
+  plot(re$L[1:100],main=paste0("Eigenvalues"))
+  plot(re$npc,re$err,main=paste0("Reconstruction Error"),xlab="number of PC",ylab="Error",
+       type="b",pch=19,col="blue")
+  
+  for(i in 1:4){
+    xi=matrix(re$V[,i],64,64,byrow = F)
+    image(rotate.mat(rotate.mat(xi)), col = gray((0:100)/100),axes = F)
+    # image(x1, col = gray((0:100)/100))
+  }
+  
+  for(i in 1:4){
+    xi=matrix(X1[i,],64,64,byrow = F)
+    image(rotate.mat(rotate.mat(xi)), col = gray((0:100)/100),axes = F)
+    # image(x1, col = gray((0:100)/100))
+  }
+  X1hat=X1%*%(re$V[,1:1000])%*%t(re$V[,1:1000])
+  for(i in 1:4){
+    xi=matrix(X1hat[i,],64,64,byrow = F)
+    image(rotate.mat(rotate.mat(xi)), col = gray((0:100)/100),axes = F)
+    # image(x1, col = gray((0:100)/100))
+  }
+}
+
+```
+
+```{r ,echo=FALSE,eval=FALSE,include=FALSE, cache=TRUE}
+re0=reconstruction_error(X0,X1,type=0)
+re1=reconstruction_error(X0,X1,type=1,p1=64,p2=64,ck=5,cl=5,a=1.1,b=1.1,method="tapering",Axis=0,n=dim(X0)[1])
+```
+
+
+```{r ,echo=FALSE, cache=TRUE}
+load("../temp40.RData")
+```
+
+```{r, echo=FALSE, fig.width=4, fig.height=4, cache=TRUE}
+reconstruction_error_plot(re0)
+```
+
+```{marginfigure}
+- Sample Covariance Structure
+- Eigenvalues (first 100)
+- Reconst. Error on test
+- Eigenfaces * 4
+- Test image
+- Reconstructed Test image (1k PCs)
+```
+
+```{r, echo=FALSE, fig.width=4, fig.height=4, cache=TRUE}
+reconstruction_error_plot(re1)
+```
+
+
+```{r, echo=FALSE, fig.width=4, fig.height=4, cache=TRUE}
+par(mfrow=c(1,1))
+layout(matrix(1, 1, 1, byrow = TRUE))
+plot(re0$npc[1:7],re0$err[1:7],col="black",type="b",pch=1,main=paste0("Reconstruction Error"),xlab="number of PC",ylab="Error",ylim = c(35,90))
+points(re1$npc[1:7],re1$err[1:7],col="red",type="b",pch=17)
+legend("topright",c("Sample Covariance","Tapered Covariance"),col=c("black","red"),lty=c(1,1),pch=c(1,17))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!---
+
+-------------------------------
+
+# 2. Copula BCSD
+
+
+-------------------------------
+
+# 3. Multitask Sparse Structrual Learning
+
+\begin{align}
+\begin{bmatrix}
+y_{1}|&\cdots&| y_{2}
+\end{bmatrix} &=  \begin{bmatrix}
+X_{1}\beta_1|&\cdots&| X_{2}\beta_2
+\end{bmatrix}+\begin{bmatrix}
+e_{1}|&\cdots&| e_{2}
+\end{bmatrix}
+\end{align}
+
+-------------------------------
+
+```{r bib, include=FALSE}
+# create a bib file for the R packages used in this document
+knitr::write_bib(c('base', 'rmarkdown'), file = 'skeleton.bib')
+```
+
+
+```{r fig-margin, fig.margin = TRUE, fig.cap = "Caption Bala.", fig.width=4, fig.height=4,echo=FALSE,include=FALSE, eval=FALSE}
+plot(1:10,1:10)
+```
+
+
+```{r, eval=FALSE, include=FALSE, echo=FALSE}
+knitr::kable(
+  mtcars[1:2, 1:2], caption = 'A subset of mtcars.'
+)
+```
+
+
+--->
+

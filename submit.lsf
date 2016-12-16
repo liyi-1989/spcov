@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# enable your environment, which will use .bashrc configuration in your home directory
+#BSUB -L /bin/bash
+
+# the name of your job showing on the queue system
+#BSUB -J myjob
+
+#BSUB -q ser-par-10g-4
+
+# the system output and error message output, %J will show as your jobID
+#BSUB -o %J.out
+#BSUB -e %J.err
+
+#the CPU number that you will collect (Attention: each node has 2 CPU)
+#BSUB -n 9
+
+
+#when job finish that you will get email notification
+#BSUB -u liyi.1989@gmail.com
+#BSUB -N
+
+
+#enter your working directory
+work=/home/li.yi3/081816_doubletaper
+
+R_infile=doubletaper_exp_simu.R
+
+# Finally, Start the program
+cd $work
+mpirun -np 1 R --save < $R_infile
+
